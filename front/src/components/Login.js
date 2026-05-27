@@ -44,7 +44,13 @@ function Login() {
             .then(res => res.json())
             .then(data => {
               alert(data.message);
-              navigator("/feed")
+              if(data.result){
+                navigator("/feed");
+                // console.log(data.token)
+                localStorage.setItem("token", data.token)
+              }
+              
+              
             })
             .catch(err => {
               alert("서버 에러 발생!")
