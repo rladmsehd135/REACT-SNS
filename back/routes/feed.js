@@ -3,7 +3,47 @@ const oracledb = require('oracledb');
 const db = require("../db");
 const jwtAuthentication = require('../auth');
 const router = express.Router();
+const multer = require('multer');
 
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, 'uploads/'),
+    filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
+});
+const upload = multer({ storage });
+
+router.post('/upload', upload.array('file'), async (req, res) => {
+    let {feedId} = req.body;
+    const files = req.files;
+    let connection;
+    console.log("feedId ==> ", feedId);
+    console.log("req.protocol ==>" , req.protocol);
+    console.log("req.host ==>", req.host);
+    try{
+        connection = await db.getConnection();
+        let results = [];
+        let host = `${req.protocol}://${req.host}/`
+        for(let file of files){
+            let filename = file.filename;
+            let destination = file.destination;
+            let result = await connection.execute(
+            `
+              INSERT INTO TBL_FEED_IMG VALUES(FEED_IMG_SEQ.NEXTVAL, :feedId, :filename, :destination)
+            `,
+            [feedId, filename, host+destination+filename],
+          { autoCommit : true});
+            results.push(result);
+        }
+        res.json({
+            message : "result",
+            result : results
+        });
+    } catch(err){
+        console.log("에러 발생!");
+        res.status(500).send("Server Error");
+    } finally{
+      connection.close();
+    }
+});
 
 router.get('/:userId', async (req, res) => {
   const { userId } = req.params;
@@ -16,7 +56,7 @@ router.get('/:userId', async (req, res) => {
         INNER JOIN TBL_FEED_IMG I ON F.ID = I.FEEDID
         WHERE USERID = :userId
       `,
-      [userId],
+      [ userId ],
       {outFormat: oracledb.OUT_FORMAT_OBJECT}
     );
     
@@ -33,25 +73,50 @@ router.get('/:userId', async (req, res) => {
   }
 });
 
-
-router.delete('/:feedId', jwtAuthentication ,async (req, res) => {
+router.delete('/:feedId', jwtAuthentication, async (req, res) => {
   const { feedId } = req.params;
   let connection;
   try {
     connection = await db.getConnection();
     const result = await connection.execute(
       `
-        DELETE FROM TBL_FEED
-        WHERE ID = :feedId
+        DELETE FROM TBL_FEED WHERE ID = :feedId
       `,
-      [feedId],
-      {autoCommit : true}
+      [ feedId ],
+      { autoCommit : true }
     );
     
     res.json({
         result : "success",
-        message : "삭제됨"
-        
+        message : "삭제 됨"
+    });
+    
+  } catch (error) {
+    console.error('Error executing query', error);
+    res.status(500).send('Error executing query');
+  } finally {
+    await connection.close();
+  }
+});
+
+router.post('/', jwtAuthentication, async (req, res) => {
+  const { userId, title, content } = req.body;
+  let connection;
+  try {
+    connection = await db.getConnection();
+    const result = await connection.execute(
+      `
+        INSERT INTO TBL_FEED VALUES(FEED_SEQ.NEXTVAL, :userId, :title, :content, SYSDATE)
+        RETURNING ID INTO :insertId
+      `,
+      { userId, title, content , insertId : { type : oracledb.NUMBER, dir:oracledb.BIND_OUT}},
+      { autoCommit : true }
+    );
+    console.log(result.outBinds.insertId[0]);
+    res.json({
+        result : "success",
+        message : "추가 됨",
+        insertId : result.outBinds.insertId[0]
     });
     
   } catch (error) {
